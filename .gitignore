@@ -1,0 +1,6 @@
+*.py[cod]
+.pytest_cache
+__pycache__
+*.egg-info
+.coverage
+dist
