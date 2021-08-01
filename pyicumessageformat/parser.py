@@ -105,7 +105,7 @@ class Parser:
             char = msg[i]
             if char == constants.CHAR_CLOSE:
                 if not parent:
-                    raise unexpected(context)
+                    raise unexpected(char, context)
                 break
 
             if parent and self.options['allow_tags'] and msg[i:i+len(constants.TAG_END)] == constants.TAG_END:
