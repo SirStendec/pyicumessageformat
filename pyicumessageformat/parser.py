@@ -11,13 +11,6 @@ def appendToken(context, type, text):
         })
 
 
-def mergeAppend(list, item):
-    if len(list) > 0 and isinstance(list[-1], str) and isinstance(item, str):
-        list[-1] = list[-1] + item
-    elif item:
-        list.append(item)
-
-
 def isDigit(char: str) -> bool:
     code = ord(char)
     return code >= 0x30 and code <= 0x39
@@ -34,6 +27,8 @@ def skipSpace(context, ret = False):
     msg = context['msg']
     length = context['length']
     start = context['i']
+    if start >= length:
+        return ''
 
     while context['i'] < length and isSpace(msg[context['i']]):
         context['i'] += 1
@@ -42,6 +37,10 @@ def skipSpace(context, ret = False):
         return msg[start:context['i']]
     elif start < context['i']:
         appendToken(context, 'space', msg[start:context['i']])
+
+
+def recursion(context):
+    raise SyntaxError("Too much recursion at position {}".format(context['i']))
 
 
 def unexpected(char, index = None):
@@ -65,8 +64,10 @@ class Parser:
         self.options = {
             'subnumeric_types': ['plural', 'selectordinal'],
             'submessage_types': ['plural', 'selectordinal', 'select'],
+            'maximum_depth': 50,
             'allow_tags': False,
             'tag_type': 'tag',
+            'include_indices': False,
             'loose_submessages': False,
             'allow_format_spaces': True,
             'require_other': True
@@ -77,17 +78,38 @@ class Parser:
 
 
     def parse(self, input: str, tokens: list = None):
+        if not isinstance(input, str):
+            raise TypeError("input must be string")
+
         context = {
             'msg': input,
             'length': len(input),
-            'i': 0
+            'i': 0,
+            'depth': 0
         }
 
-        if isinstance(tokens, list):
+        if tokens is not None:
+            if not isinstance(tokens, list):
+                raise TypeError("tokens must be list or None")
             context['tokens'] = tokens
 
-        return self._parseAST(context, None)
-
+        try:
+            return self._parseAST(context, None)
+        except RecursionError:
+            # Any RecursionError is also a syntax error
+            # because there is no reasonable reason to have
+            # such a deeply nested ICU MessageFormat string.
+            # Re-throw it as a SyntaxError as though we hit
+            # the maximum allowed depth.
+            raise recursion(context)
+        except IndexError:
+            # Any IndexErrors we may encounter are actually
+            # syntax errors as we try to read parts of the
+            # string that don't exist. Ideally there would
+            # not be any IndexErrors, and we'd always catch
+            # the issue and return a SyntaxError, but just
+            # in case.
+            raise SyntaxError
 
     def _parseAST(self, context, parent):
         msg = context['msg']
@@ -111,11 +133,11 @@ class Parser:
             if parent and self.options['allow_tags'] and msg[i:i+len(constants.TAG_END)] == constants.TAG_END:
                 break
 
-            mergeAppend(out, self._parsePlaceholder(context, parent))
+            out.append(self._parsePlaceholder(context, parent))
             start = context['i']
             text = self._parseText(context, parent)
             if text:
-                mergeAppend(out, text)
+                out.append(text)
                 appendToken(context, 'text', msg[start:context['i']])
 
         return out
@@ -197,19 +219,28 @@ class Parser:
         return text
 
 
+    def _tokenIndices(self, token, start, end):
+        if self.options['include_indices']:
+            token['start'] = start
+            token['end'] = end
+        return token
+
+
     def _parsePlaceholder(self, context, parent):
         msg = context['msg']
         length = context['length']
         is_hash_special = parent and parent['type'] in self.options['subnumeric_types']
 
-        char = msg[context['i']]
+        start_idx = context['i']
+        char = msg[start_idx] if start_idx < length else None
         if is_hash_special and char == constants.CHAR_HASH:
             appendToken(context, 'hash', char)
             context['i'] += 1
-            return {
+            return self._tokenIndices({
                 'type': 'number',
-                'name': parent['name']
-            }
+                'name': parent['name'],
+                'hash': True
+            }, start_idx, context['i'])
 
         tag = self._parseTag(context, parent)
         if tag:
@@ -239,7 +270,7 @@ class Parser:
         if char == constants.CHAR_CLOSE:
             appendToken(context, 'syntax', char)
             context['i'] += 1
-            return token
+            return self._tokenIndices(token, start_idx, context['i'])
 
         if char != constants.CHAR_SEP:
             raise expected(SEP_OR_CLOSE, context)
@@ -264,7 +295,7 @@ class Parser:
                 raise expected('{} sub-messages'.format(ttype), context)
 
             context['i'] += 1
-            return token
+            return self._tokenIndices(token, start_idx, context['i'])
 
         if char != constants.CHAR_SEP:
             raise expected(SEP_OR_CLOSE, context)
@@ -316,7 +347,7 @@ class Parser:
 
         appendToken(context, 'syntax', char)
         context['i'] += 1
-        return token
+        return self._tokenIndices(token, start_idx, context['i'])
 
 
     def _parseTag(self, context, parent):
@@ -326,7 +357,8 @@ class Parser:
         msg = context['msg']
         length = context['length']
         i = context['i']
-        char = msg[i]
+        start_idx = i
+        char = msg[i] if i < length else None
 
         if char != constants.CHAR_TAG_OPEN:
             return None
@@ -349,10 +381,10 @@ class Parser:
         skipSpace(context)
 
         i = context['i']
-        if msg[i:i + len(constants.TAG_CLOSING)] == constants.TAG_CLOSING:
+        if i < length and msg[i:i + len(constants.TAG_CLOSING)] == constants.TAG_CLOSING:
             appendToken(context, 'syntax', constants.TAG_CLOSING)
             context['i'] += len(constants.TAG_CLOSING)
-            return token
+            return self._tokenIndices(token, start_idx, context['i'])
 
         char = msg[i] if i < length else None
         if char != constants.CHAR_TAG_END:
@@ -366,7 +398,7 @@ class Parser:
             token['contents'] = children
         end = context['i']
 
-        if msg[end:end + len(constants.TAG_END)] != constants.TAG_END:
+        if end < length and msg[end:end + len(constants.TAG_END)] != constants.TAG_END:
             raise expected(constants.TAG_END, context)
 
         appendToken(context, 'syntax', constants.TAG_END)
@@ -376,7 +408,7 @@ class Parser:
         if close_name:
             appendToken(context, 'name', close_name)
         if close_name != name:
-            raise expected(constants.TAG_END + name + constants.CHAR_TAG_END, msg[end], end)
+            raise expected(constants.TAG_END + name + constants.CHAR_TAG_END, msg[end] if end < length else '<EOF>', end)
 
         skipSpace(context)
         char = msg[context['i']] if context['i'] < length else None
@@ -385,8 +417,7 @@ class Parser:
 
         appendToken(context, 'syntax', char)
         context['i'] += 1
-
-        return token
+        return self._tokenIndices(token, start_idx, context['i'])
 
 
     def _parseName(self, context, is_tag = False):
@@ -412,7 +443,7 @@ class Parser:
         length = context['length']
         start = context['i']
 
-        if msg[start:start + len(constants.OFFSET)] != constants.OFFSET:
+        if start >= length or msg[start:start + len(constants.OFFSET)] != constants.OFFSET:
             return 0
 
         appendToken(context, 'offset', constants.OFFSET)
@@ -436,6 +467,8 @@ class Parser:
         length = context['length']
         options = {}
 
+        context['depth'] += 1
+
         while context['i'] < length and msg[context['i']] != constants.CHAR_CLOSE:
             selector = self._parseName(context)
             if not selector:
@@ -445,6 +478,8 @@ class Parser:
 
             options[selector] = self._parseSubmessage(context, parent)
             skipSpace(context)
+
+        context['depth'] -= 1
 
         if not options:
             return None
@@ -467,8 +502,12 @@ class Parser:
 
 
     def _parseSubmessage(self, context, parent):
+        if context['depth'] >= self.options['maximum_depth']:
+            raise recursion(context)
+
         msg = context['msg']
-        if msg[context['i']] != constants.CHAR_OPEN:
+        length = context['length']
+        if context['i'] >= length or msg[context['i']] != constants.CHAR_OPEN:
             raise expected(constants.CHAR_OPEN, context)
 
         appendToken(context, 'syntax', constants.CHAR_OPEN)
@@ -476,7 +515,7 @@ class Parser:
 
         message = self._parseAST(context, parent)
 
-        char = msg[context['i']] if context['i'] < context['length'] else None
+        char = msg[context['i']] if context['i'] < length else None
         if char != constants.CHAR_CLOSE:
             raise expected(constants.CHAR_CLOSE, context)
 

@@ -19,6 +19,13 @@ from pyicumessageformat import Parser
 # The following are the default values for the various available
 # settings for the Parser.
 parser = Parser({
+    # Whether or not to include indices on placeholder objects.
+    'include_indices': False,
+
+    # Maximum depth limits the nesting depth of sub-messages. This is
+    # done to avoid throwing a RecursionError.
+    'maximum_depth': 50,
+
     # Known types that include sub-messages.
     'submessage_types': ['plural', 'selectordinal', 'select'],
 
@@ -170,6 +177,10 @@ type Tag = {
     name: string;
     type: 'tag';
     contents?: AST;
+
+    // start and end only included with include_indices
+    start?: number;
+    end?: number;
 };
 
 type Variable = {
@@ -178,6 +189,14 @@ type Variable = {
     offset?: number;
     format?: string;
     options?: Submessages;
+
+    // If hash is present, it should be true and indicate
+    // that the variable was a hash (#).
+    hash?: true;
+
+    // start and end only included with include_indices
+    start?: number;
+    end?: number;
 }
 
 type Submessages = {

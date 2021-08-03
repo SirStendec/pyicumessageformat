@@ -5,7 +5,8 @@ from pyicumessageformat import Parser
 ## Setup
 
 parser = Parser()
-tag_parser = Parser({'allow_tags': True})
+tag_parser = Parser({'allow_tags': True, 'include_indices': True})
+idx_parser = Parser({'include_indices': True})
 
 def token(type, text):
     return {
@@ -48,7 +49,7 @@ tHash = token('hash', '#')
 def tokensToString(tokens):
     return ''.join(x['text'] for x in tokens)
 
-def parse(input, tokens = None):
+def parsePlain(input, tokens = None):
     out = parser.parse(input, tokens)
     if tokens:
         assert tokensToString(tokens) == input
@@ -56,6 +57,12 @@ def parse(input, tokens = None):
 
 def parseTags(input, tokens = None):
     out = tag_parser.parse(input, tokens)
+    if tokens:
+        assert tokensToString(tokens) == input
+    return out
+
+def parse(input, tokens = None):
+    out = idx_parser.parse(input, tokens)
     if tokens:
         assert tokensToString(tokens) == input
     return out
@@ -70,9 +77,41 @@ def test_hello_world():
         tText('Hello, World!')
     ]
 
+def test_input_types():
+    with pytest.raises(TypeError, match='input'):
+        parse(12)
+
+    with pytest.raises(TypeError, match='tokens'):
+        parse('Hello!', False)
+
 def test_hello_name():
     tokens = []
-    assert parse('Hello, {name}!', tokens) == ['Hello, ', {'name': 'name'}, '!']
+    assert parsePlain('Hello, {name}!', tokens) == ['Hello, ', {'name': 'name'}, '!']
+    assert tokens == [
+        tText('Hello, '),
+        tOpen,
+            tName('name'),
+        tClose,
+        tText('!')
+    ]
+
+def test_hello_indices():
+    tokens = []
+    input = 'Hello, {name}!'
+    result = parse(input, tokens)
+    assert result == [
+        'Hello, ',
+        {
+            'name': 'name',
+            'start': 7,
+            'end': 13
+        },
+        '!'
+    ]
+
+    token = result[1]
+    assert input[token['start']: token['end']] == '{name}'
+
     assert tokens == [
         tText('Hello, '),
         tOpen,
@@ -83,7 +122,12 @@ def test_hello_name():
 
 def test_n_number():
     tokens = []
-    assert parse('{n, number}', tokens) == [{'name': 'n', 'type': 'number'}]
+    assert parse('{n, number}', tokens) == [{
+        'name': 'n',
+        'type': 'number',
+        'start': 0,
+        'end': 11
+    }]
     assert tokens == [
         tOpen,
             tName('n'),
@@ -98,7 +142,9 @@ def test_n_number_percent():
     assert parse('{num, number, percent }', tokens) == [{
         'name': 'num',
         'type': 'number',
-        'format': 'percent'
+        'format': 'percent',
+        'start': 0,
+        'end': 23
     }]
     assert tokens == [
         tOpen,
@@ -118,12 +164,20 @@ def test_plural_photos():
     assert parse('{numPhotos, plural, =0{no photos} =1{one photo} other{# photos}}', tokens) == [{
         'name': 'numPhotos',
         'type': 'plural',
+        'start': 0,
+        'end': 64,
         'offset': 0,
         'options': {
             '=0': ['no photos'],
             '=1': ['one photo'],
             'other': [
-                {'name': 'numPhotos', 'type': 'number'},
+                {
+                    'name': 'numPhotos',
+                    'type': 'number',
+                    'hash': True,
+                    'start': 54,
+                    'end': 55
+                },
                 ' photos'
             ]
         }
@@ -160,11 +214,19 @@ def test_plural_offset():
         'name': 'numGuests',
         'type': 'plural',
         'offset': 1,
+        'start': 0,
+        'end': 80,
         'options': {
             '=0': ['no party'],
             'one': ['host and a guest'],
             'other': [
-                {'name': 'numGuests', 'type': 'number'},
+                {
+                    'name': 'numGuests',
+                    'type': 'number',
+                    'hash': True,
+                    'start': 70,
+                    'end': 71
+                },
                 ' guests'
             ]
         }
@@ -203,6 +265,8 @@ def test_negative_offset():
     assert parse('{n, plural, offset:-12 other{x}}', tokens) == [{
         'name': 'n',
         'type': 'plural',
+        'start': 0,
+        'end': 32,
         'offset': -12,
         'options': {
             'other': ['x']
@@ -250,22 +314,48 @@ def test_ordinal():
     assert parse('{rank, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}', tokens) == [{
         'name': 'rank',
         'type': 'selectordinal',
+        'start': 0,
+        'end': 64,
         'offset': 0,
         'options': {
             'one': [
-                {'name': 'rank', 'type': 'number'},
+                {
+                    'name': 'rank',
+                    'type': 'number',
+                    'hash': True,
+                    'start': 27,
+                    'end': 28
+                },
                 'st'
             ],
             'two': [
-                {'name': 'rank', 'type': 'number'},
+                {
+                    'name': 'rank',
+                    'type': 'number',
+                    'hash': True,
+                    'start': 37,
+                    'end': 38
+                },
                 'nd'
             ],
             'few': [
-                {'name': 'rank', 'type': 'number'},
+                {
+                    'name': 'rank',
+                    'type': 'number',
+                    'hash': True,
+                    'start': 47,
+                    'end': 48
+                },
                 'rd'
             ],
             'other': [
-                {'name': 'rank', 'type': 'number'},
+                {
+                    'name': 'rank',
+                    'type': 'number',
+                    'hash': True,
+                    'start': 59,
+                    'end': 60
+                },
                 'th'
             ]
         }
@@ -313,6 +403,8 @@ def test_select():
     assert parse('{gender, select, female {woman} male {man} other {person}}', tokens) == [{
         'name': 'gender',
         'type': 'select',
+        'start': 0,
+        'end': 58,
         'options': {
             'female': ['woman'],
             'male': ['man'],
@@ -352,6 +444,8 @@ def test_custom_one():
     assert parse('{a, custom, one}', tokens) == [{
         'name': 'a',
         'type': 'custom',
+        'start': 0,
+        'end': 16,
         'format': 'one'
     }]
     assert tokens == [
@@ -371,6 +465,8 @@ def test_weird_tags():
     assert parse('{<0/>,</>,void}', tokens) == [{
         'name': '<0/>',
         'type': '</>',
+        'start': 0,
+        'end': 15,
         'format': 'void'
     }]
     assert tokens == [
@@ -388,6 +484,8 @@ def test_weird_with_tags():
     assert parseTags('{<0/>,</>,void}', tokens) == [{
         'name': '<0/>',
         'type': '</>',
+        'start': 0,
+        'end': 15,
         'format': 'void'
     }]
     assert tokens == [
@@ -454,7 +552,8 @@ def test_no_loose():
 def test_loose_with_tags():
     x = Parser({
         'loose_submessages': True,
-        'allow_tags': True
+        'allow_tags': True,
+        'include_indices': True
     })
 
     input = '{a,<,>{click here}}'
@@ -462,6 +561,8 @@ def test_loose_with_tags():
     assert x.parse(input, tokens) == [{
         'name': 'a',
         'type': '<',
+        'start': 0,
+        'end': 19,
         'options': {
             '>': ['click here']
         }
@@ -491,8 +592,15 @@ def test_simple_xml():
     assert parseTags('<a><i/>here</a>', tokens) == [{
         'name': 'a',
         'type': 'tag',
+        'start': 0,
+        'end': 15,
         'contents': [
-            {'name': 'i', 'type': 'tag'},
+            {
+                'name': 'i',
+                'type': 'tag',
+                'start': 3,
+                'end': 7
+            },
             'here'
         ]
     }]
@@ -524,34 +632,70 @@ def test_escaping():
     assert parse('#', []) == ['#']
     assert parse("'", []) == ["'"]
     assert parse("{0} '{1}' {2}", []) == [
-        {'name': '0'},
+        {
+            'name': '0',
+            'start': 0,
+            'end': 3
+        },
         ' {1} ',
-        {'name': '2'}
+        {
+            'name': '2',
+            'start': 10,
+            'end': 13
+        }
     ]
     assert parse("{0} '{1} {2}", []) == [
-        {'name': '0'},
+        {
+            'name': '0',
+            'start': 0,
+            'end': 3
+        },
         ' {1} {2}'
     ]
     assert parse("{0} ''{1} {2}", []) == [
-        {'name': '0'},
+        {
+            'name': '0',
+            'start': 0,
+            'end': 3
+        },
         " '",
-        {'name': '1'},
+        {
+            'name': '1',
+            'start': 6,
+            'end': 9
+        },
         ' ',
-        {'name': '2'}
+        {
+            'name': '2',
+            'start': 10,
+            'end': 13
+        }
     ]
     assert parse("So, '{Mike''s Test}' is real.", []) == ["So, {Mike's Test} is real."]
     assert parse("You've done it now, {name}.", []) == [
         "You've done it now, ",
-        {'name': 'name'},
+        {
+            'name': 'name',
+            'start': 20,
+            'end': 26
+        },
         '.'
     ]
     assert parse("{n,plural,other{#'#'}}", []) == [{
         'name': 'n',
         'type': 'plural',
+        'start': 0,
+        'end': 22,
         'offset': 0,
         'options': {
             'other': [
-                {'name': 'n', 'type': 'number'},
+                {
+                    'name': 'n',
+                    'type': 'number',
+                    'hash': True,
+                    'start': 16,
+                    'end': 17
+                },
                 '#'
             ]
         }
@@ -562,6 +706,8 @@ def test_escape_format():
     assert parse("{n,date,'a style'}", tokens) == [{
         'name': 'n',
         'type': 'date',
+        'start': 0,
+        'end': 18,
         'format': 'a style'
     }]
     assert tokens == [
@@ -581,10 +727,14 @@ def test_mixed_tags_placeholders():
         {
             'name': 'boldThis',
             'type': 'tag',
+            'start': 13,
+            'end': 84,
             'contents': [
                 {
                     'name': 'price',
                     'type': 'number',
+                    'start': 23,
+                    'end': 73,
                     'format': '::currency/USD precision-integer'
                 }
             ]
@@ -593,10 +743,14 @@ def test_mixed_tags_placeholders():
         {
             'name': 'link',
             'type': 'tag',
+            'start': 90,
+            'end': 136,
             'contents': [
                 {
                     'name': 'pct',
                     'type': 'number',
+                    'start': 96,
+                    'end': 120,
                     'format': '::percent'
                 },
                 ' discount'
@@ -643,6 +797,9 @@ def test_mixed_tags_placeholders():
 def test_throws_extra_close():
     with pytest.raises(SyntaxError, match='Unexpected "}"'):
         parse('}')
+
+    with pytest.raises(SyntaxError, match='Unexpected "}"'):
+        parse('{test}}')
 
 def test_throws_no_close():
     with pytest.raises(SyntaxError, match='Expected , or }'):
@@ -715,6 +872,9 @@ def test_throws_missing_submessage_close():
     with pytest.raises(SyntaxError, match='Expected }'):
         parse('{n,select,other{a')
 
+    with pytest.raises(SyntaxError, match='Expected {'):
+        parse('{n,select,other{#})')
+
 def test_throws_missing_offset_number():
     with pytest.raises(SyntaxError, match='Expected offset number'):
         parse('{n,plural,offset:}')
@@ -772,3 +932,30 @@ def test_custom_require_other():
 
     assert x.parse('{n,select,cake{lie}}')
     assert x.parse('{n,plural,one{two}}')
+
+def test_recursion():
+    start = '{a,b,c{{a}'
+    end = '}}'
+
+    x = Parser({
+        'loose_submessages': True,
+        'require_other': False
+    })
+
+    inp = ''
+    out = ''
+    for i in range(1000):
+        inp = inp + start
+        out = out + end
+
+    with pytest.raises(SyntaxError, match='Too much recursion'):
+        x.parse(inp + out)
+
+    x = Parser({
+        'loose_submessages': True,
+        'require_other': False,
+        'maximum_depth': 99999
+    })
+
+    with pytest.raises(SyntaxError, match='Too much recursion'):
+        x.parse(inp + out)
