@@ -5,6 +5,7 @@ from pyicumessageformat import Parser
 ## Setup
 
 parser = Parser()
+tag_strict_parser = Parser({'allow_tags': True, 'strict_tags': True, 'include_indices': True})
 tag_parser = Parser({'allow_tags': True, 'include_indices': True})
 idx_parser = Parser({'include_indices': True})
 
@@ -57,6 +58,12 @@ def parsePlain(input, tokens = None):
 
 def parseTags(input, tokens = None):
     out = tag_parser.parse(input, tokens)
+    if tokens:
+        assert tokensToString(tokens) == input
+    return out
+
+def parseStrictTags(input, tokens = None):
+    out = tag_strict_parser.parse(input, tokens)
     if tokens:
         assert tokensToString(tokens) == input
     return out
@@ -885,7 +892,9 @@ def test_throws_missing_closing_brace():
 
 def test_throws_missing_tag_id():
     with pytest.raises(SyntaxError, match='Expected tag name'):
-        parseTags('<>')
+        parseStrictTags('<>')
+
+    parseTags('<>')
 
 def test_throws_missing_tag_end():
     with pytest.raises(SyntaxError, match='Expected > or />'):
@@ -906,6 +915,20 @@ def test_throws_invalid_close_tag():
 def test_throws_mismatch_tag():
     with pytest.raises(SyntaxError, match='Expected </a>'):
         parseTags('<a></b>')
+
+def test_loose_tags():
+    with pytest.raises(SyntaxError, match='Expected tag name'):
+        parseStrictTags('< {test}')
+
+    parseTags('< {test}')
+
+def test_closing_tags():
+    with pytest.raises(SyntaxError, match='Unexpected "</"'):
+        parseStrictTags('</3')
+
+    with pytest.raises(SyntaxError, match='Unexpected "</"'):
+        parseTags('</3')
+
 
 def test_custom_require_other():
     x = Parser({

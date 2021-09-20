@@ -40,6 +40,10 @@ parser = Parser({
     # unique value that will not overlap with any placeholder types.
     'tag_type': 'tag',
 
+    # When enabled, strict tags makes the system far less forgiving
+    # about dangling '<' characters in input strings.
+    'strict_tags': False,
+
     # Whether or not to parse sub-messages for unknown types. When this
     # is set to False and an unknown type has sub-messages, a syntax
     # error will be raised.

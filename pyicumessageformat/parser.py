@@ -11,9 +11,47 @@ def appendToken(context, type, text):
         })
 
 
+def isAlpha(char: str) -> bool:
+    code = ord(char)
+    return (code >= 97 and code <= 122) or (code >= 65 and code <= 90)
+
+
 def isDigit(char: str) -> bool:
     code = ord(char)
     return code >= 0x30 and code <= 0x39
+
+
+def isAlphaOrSlash(char: str) -> bool:
+    return isAlpha(char) or char == constants.CHAR_TAG_CLOSE
+
+
+def isAlphaNum(char: str) -> bool:
+    return isAlpha(char) or isDigit(char)
+
+
+def isElementNameChar(char: str) -> bool:
+    code = ord(char)
+    return (
+        code == 45 or # '-'
+        code == 46 or # '.'
+        (code >= 48 and code <= 57) or # 0..9
+        code == 95 or # '_'
+        (code >= 97 and code <= 122) or # a..z
+        (code >= 65 and code <= 90) or # A..Z
+        code == 0xB7 or
+        (code >= 0xc0 and code <= 0xD6) or
+        (code >= 0xD8 and code <= 0xF6) or
+        (code >= 0xF8 and code <= 0x37D) or
+        (code >= 0x37F and code <= 0x1FFF) or
+        (code >= 0x200C and code <= 0x200D) or
+        (code >= 0x203F and code <= 0x2040) or
+        (code >= 0x2070 and code <= 0x218F) or
+        (code >= 0x2C00 and code <= 0x2FEF) or
+        (code >= 0x3001 and code <= 0xD7FF) or
+        (code >= 0xF900 and code <= 0xFDCF) or
+        (code >= 0xFDF0 and code <= 0xFFFD) or
+        (code >= 0x10000 and code <= 0xEFFFF)
+    )
 
 
 def isSpace(char: str) -> bool:
@@ -66,6 +104,7 @@ class Parser:
             'submessage_types': ['plural', 'selectordinal', 'select'],
             'maximum_depth': 50,
             'allow_tags': False,
+            'strict_tags': False,
             'tag_type': 'tag',
             'include_indices': False,
             'loose_submessages': False,
@@ -143,6 +182,34 @@ class Parser:
         return out
 
 
+    def _canReadTag(self, context, parent):
+        msg = context['msg']
+        length = context['length']
+        start = context['i']
+        current = context['i']
+        if not self.options['allow_tags']:
+            return False
+
+        char = msg[current] if current < length else None
+        if char != constants.CHAR_TAG_OPEN:
+            return False
+
+        if self.options['strict_tags']:
+            return True
+
+        current += 1
+        char = msg[current] if current < length else None
+
+        # We're trying to close a tag.
+        if char == constants.CHAR_TAG_CLOSE:
+            return True
+
+        if isAlpha(char):
+            return True
+
+        return False
+
+
     def _parseText(self, context, parent, is_arg_style = False):
         msg = context['msg']
         length = context['length']
@@ -160,7 +227,7 @@ class Parser:
 
             if char in constants.VAR_CHARS or \
                     (is_hash_special and char == constants.CHAR_HASH) or \
-                    (is_tag_special and char == constants.CHAR_TAG_OPEN) or \
+                    (is_tag_special and char == constants.CHAR_TAG_OPEN and self._canReadTag(context, parent)) or \
                     (is_arg_style and not allow_arg_spaces and is_space):
                 break
 
@@ -366,12 +433,17 @@ class Parser:
         if msg[i:i + len(constants.TAG_END)] == constants.TAG_END:
             raise unexpected(constants.TAG_END, i)
 
-        appendToken(context, 'syntax', char)
         context['i'] += 1
 
         name = self._parseName(context, True)
         if not name:
+            if not self.options['strict_tags']:
+                context['i'] = start_idx
+                return
+
             raise expected('tag name', context)
+
+        appendToken(context, 'syntax', char)
 
         token = {
             'type': self.options['tag_type'],

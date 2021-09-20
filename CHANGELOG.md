@@ -1,3 +1,15 @@
+# 0.4.0
+
+* Added: `strict_tags` option that requires all tag characters to be
+  escaped if not part of a tag name.
+
+* Changed: With the new `strict_tags` setting, it has been set to False
+  by default. As such, usage of the `<` character when tags are enabled
+  but outside of a tag is easier. For example, the following string
+  will be parsed as text with `strict_tags` set to False, but will throw
+  an exception if `strict_tags` is True: `I <3 Python`
+
+
 # 0.3.0
 
 * Added: `maximum_depth` option that prevents parsing from recursing past
