@@ -6,6 +6,8 @@ from pyicumessageformat import Parser
 
 parser = Parser()
 tag_strict_parser = Parser({'allow_tags': True, 'strict_tags': True, 'include_indices': True})
+tag_prefix_parser = Parser({'allow_tags': True, 'include_indices': True, 'tag_prefix': 'x:'})
+tag_strict_prefix_parser = Parser({'allow_tags': True, 'include_indices': True, 'tag_prefix': 'x:'})
 tag_parser = Parser({'allow_tags': True, 'include_indices': True})
 idx_parser = Parser({'include_indices': True})
 
@@ -52,6 +54,12 @@ def tokensToString(tokens):
 
 def parsePlain(input, tokens = None):
     out = parser.parse(input, tokens)
+    if tokens:
+        assert tokensToString(tokens) == input
+    return out
+
+def parsePrefixTags(input, tokens = None):
+    out = tag_prefix_parser.parse(input, tokens)
     if tokens:
         assert tokensToString(tokens) == input
     return out
@@ -920,14 +928,137 @@ def test_loose_tags():
     with pytest.raises(SyntaxError, match='Expected tag name'):
         parseStrictTags('< {test}')
 
-    parseTags('< {test}')
+    tokens = []
+    assert parseTags('< {test}', tokens) == [
+        '< ',
+        {
+            'name': 'test',
+            'start': 2,
+            'end': 8
+        }
+    ]
+    assert tokens == [
+        tText('< '),
+        tOpen,
+            tName('test'),
+        tClose
+    ]
+
+    tokens = []
+    assert parseTags('</', tokens) == ['</']
+    assert tokens == [tText('</')]
+
+    parseTags('i <3 programming')
+    parseTags('3 < 4')
+
+    with pytest.raises(SyntaxError, match='Unexpected "</"'):
+        parseStrictTags('</')
+
+    with pytest.raises(SyntaxError, match='Expected > or />'):
+        parseStrictTags('i <3 programming')
+
+    with pytest.raises(SyntaxError, match='Expected tag name'):
+        parseStrictTags('3 < 4')
+
+    with pytest.raises(SyntaxError, match='Expected > or />'):
+        parseTags('<unending')
+
+    with pytest.raises(SyntaxError, match='Expected > or />'):
+        parseTags('<hi there')
 
 def test_closing_tags():
     with pytest.raises(SyntaxError, match='Unexpected "</"'):
         parseStrictTags('</3')
 
-    with pytest.raises(SyntaxError, match='Unexpected "</"'):
-        parseTags('</3')
+    tokens = []
+    assert parseTags('</3', tokens) == ['</3']
+    assert tokens == [
+        tText('</3')
+    ]
+
+def test_self_closing_tags():
+    tokens = []
+    assert parseStrictTags('<b>hello <there/></b>', tokens) == [{
+        'type': 'tag',
+        'name': 'b',
+        'contents': [
+            'hello ',
+            {
+                'type': 'tag',
+                'name': 'there',
+                'start': 9,
+                'end': 17
+            }
+        ],
+        'start': 0,
+        'end': 21
+    }]
+    assert tokens == [
+        tTagOpen,
+            tName('b'),
+        tTagEnd,
+            tText('hello '),
+            tTagOpen,
+                tName('there'),
+            tTagClosing,
+        tTagOpenClosing,
+            tName('b'),
+        tTagEnd
+    ]
+
+def test_strict_tags():
+    tokens = []
+    assert parseStrictTags('<b>hello</b>', tokens) == [{
+        'type': 'tag',
+        'name': 'b',
+        'contents': [
+            'hello'
+        ],
+        'start': 0,
+        'end': 12
+    }]
+    assert tokens == [
+        tTagOpen,
+            tName('b'),
+        tTagEnd,
+            tText('hello'),
+        tTagOpenClosing,
+            tName('b'),
+        tTagEnd
+    ]
+
+
+def test_prefix_tags_no_prefix():
+    tokens = []
+    assert parsePrefixTags('Usage: /ban <user>', tokens) == ['Usage: /ban <user>']
+    assert tokens == [
+        tText('Usage: /ban <user>')
+    ]
+
+def test_prefix_tag():
+    tokens = []
+    assert parsePrefixTags('<Dance> <x:link>here</x:link>', tokens) == [
+        '<Dance> ',
+        {
+            'type': 'tag',
+            'name': 'x:link',
+            'contents': [
+                'here'
+            ],
+            'start': 8,
+            'end': 29
+        }
+    ]
+    assert tokens == [
+        tText('<Dance> '),
+        tTagOpen,
+            tName('x:link'),
+        tTagEnd,
+        tText('here'),
+        tTagOpenClosing,
+            tName('x:link'),
+        tTagEnd
+    ]
 
 
 def test_custom_require_other():

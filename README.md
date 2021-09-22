@@ -44,6 +44,12 @@ parser = Parser({
     # about dangling '<' characters in input strings.
     'strict_tags': False,
 
+    # If this is set, tag names must start with the provided string,
+    # otherwise the tag will be ignored and treated as plain text.
+    # This is overridden by strict_tags, which will always require a
+    # tag opening character to be treated as a tag.
+    'tag_prefix': None,
+
     # Whether or not to parse sub-messages for unknown types. When this
     # is set to False and an unknown type has sub-messages, a syntax
     # error will be raised.
@@ -73,6 +79,36 @@ The `require_other` setting has a few valid possible values.
 
 Additionally, `require_other` can be a list of types. In that event, only those
 types will be required to have an "other" selector.
+
+
+## Tags
+
+By default, tags are not handled in any way. By setting `allow_tags` to True,
+rudimentary support for simple XML-style tags is enabled. In this mode, the
+parser will look for tag opening (`<`) characters and attempt to read a tag.
+If the tag opening is not followed by either a forward slash (`/`) or a
+letter A-Z, the tag will be ignored. If the tag is followed by a forward
+slash, but not then followed by a valid string, then it will not be matched.
+
+Matches: `<b>`, `<strong>`, `<x:link>`, `</b>`
+Matches, but errors: `<hi`, `<unending`
+Does Not Match: `i <3 programming`, `3 < 4`, `</`
+
+By setting a string to `tag_prefix`, you can only match tags that start with
+a specific string. For example, if you set the tag prefix to `x:` then only
+tags starting with `x:` will be matched.
+
+Matches with `x:`: `<x:link>`, `<x:strong>`, `</x:link>`
+Matches, but errors: `<x:link`,
+Does Not Match: `Usage: /ban <user>`
+
+Finally, you can enable `strict_tags` to require all tag opening (`<`) characters
+to be treated as part of a tag. In strict tags mode, all `<` characters *must*
+be escaped if they are not part of a tag.
+
+Matches: `<b>`, `<strong>`, `<x:link>`, `</b>`,
+Matches, but errors: `<hi`, `<unending`, `</`, `i <3 programming`, `3 < 4`
+Does Not Match: `i '<'3 programming`
 
 
 ## Parsing
