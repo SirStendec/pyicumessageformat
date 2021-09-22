@@ -1,3 +1,13 @@
+# 1.0.0
+
+* Added: `tag_prefix` option that requires all tag names to start
+  with a specific string to be matched. Does not function with
+  `strict_tags` enabled.
+
+* Changed: In loose tags mode, the string `</` will not be matched
+  if not followed with a letter to start a tag name.
+
+
 # 0.4.0
 
 * Added: `strict_tags` option that requires all tag characters to be
